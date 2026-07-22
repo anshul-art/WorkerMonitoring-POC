@@ -1,0 +1,12 @@
+# Worker Monitoring PoC — CPU-only (AMD Ryzen, no CUDA)
+# Install PyTorch CPU first, then: pip install -r requirements.txt
+
+ultralytics>=8.3.0
+lap>=0.5.12
+opencv-python>=4.8.0,<4.12
+pandas>=2.0.0
+matplotlib>=3.7.0
+pyyaml>=6.0
+tqdm>=4.65.0
+mediapipe>=0.10.9,<0.10.21
+numpy>=1.23.0,<2

@@ -1,0 +1,108 @@
+# Station -> track_id map for FastTracker full run
+# Source: outputs/tracks/fasttracker_full/tracks.csv
+# Labels: outputs/diagnostics/fasttracker_full/track_labels.csv
+#
+# IMPORTANT: track_ids are NOT merged. Mid-station has two sessions
+# (same person left and returned). Pose estimation should run per track_id;
+# use this map when interpreting results by workstation.
+
+video: "20260602_214750.mp4"
+tracks_csv: "outputs/tracks/fasttracker_full/tracks.csv"
+expected_workers: 4
+
+stations:
+  - id: 1
+    name: "left"
+    description: "Leftmost worker at conveyor"
+    mean_x_approx: 227
+    track_ids: [2]
+    sessions:
+      - track_id: 2
+        frames: [0, 18714]
+        note: "Continuous full-video session"
+
+  - id: 2
+    name: "mid_pole"
+    description: "Mid-station worker (near / behind green support pole)"
+    mean_x_approx: 566
+    track_ids: [3, 16]
+    same_person: true
+    sessions:
+      - track_id: 3
+        frames: [0, 1150]
+        note: "Session before real absence; ID drifts left after ~1124"
+      - track_id: 16
+        frames: [1928, 18714]
+        note: "Session after return (~26s absence between 3 and 16)"
+    absence_gap_frames: [1151, 1927]
+    absence_note: "Real seat vacancy — not a tracker failure"
+
+  - id: 3
+    name: "foreground_right"
+    description: "Foreground-right worker (larger box, nearer camera)"
+    mean_x_approx: 852
+    track_ids: [1]
+    sessions:
+      - track_id: 1
+        frames: [0, 18714]
+        note: "Continuous full-video session"
+
+  - id: 4
+    name: "background_right"
+    description: "Background-right worker (partially behind station 3)"
+    mean_x_approx: 1013
+    track_ids: [4]
+    sessions:
+      - track_id: 4
+        frames: [0, 18714]
+        note: "Nearly continuous; brief misses possible under occlusion by station 3"
+
+# Quick lookup: track_id -> station_id
+track_to_station:
+  2: 1
+  3: 2
+  16: 2
+  1: 3
+  4: 4
+
+noise_track_ids_excluded_from_pose: true
+noise_note: >
+  Short noise IDs (n_frames < 111) are listed in track_labels.csv as label=noise.
+  Do not run pose on them unless debugging.
+
+# ---------------------------------------------------------------------------
+# Identity resolution (OUT OF SCOPE for this PoC session)
+# ---------------------------------------------------------------------------
+# Mid-station track_ids 3 and 16 are the SAME person across a real absence, but
+# we do NOT merge them here. Reappearance identity is resolved server-side by the
+# NEW calibrated face-recognition / attendance system:
+#   ElasticFaceArcAug + FAR-calibrated thresholds + mixed-condition galleries
+# NOT the old Milvus-based pipeline.
+#
+# This session only produces handoff artifacts keyed by track_id + frame_idx/timestamp:
+#   - outputs/tracks/fasttracker_full/tracks.csv
+#   - station_map.yaml (this file)
+#   - pose / activity outputs (when extracted)
+# No face-rec, gallery matching, or track stitching is built in this repo session.
+
+identity_resolution:
+  in_scope_here: false
+  system: "ElasticFaceArcAug + FAR-calibrated thresholds + mixed-condition galleries"
+  location: "company server (calibrated attendance pipeline)"
+  not_used: "old Milvus-based face-rec pipeline"
+  local_rule: "Keep raw track_ids separate; server maps track sessions to employee IDs"
+
+# ---------------------------------------------------------------------------
+# Pose extraction contract (must not silently use low-visibility wrists)
+# ---------------------------------------------------------------------------
+pose:
+  landmarks_of_interest: [left_wrist, right_wrist, left_elbow, right_elbow]
+  visibility_threshold: 0.5
+  low_visibility_policy: "store_null_coords_keep_visibility_score"
+  movement_input_rule: "only non-null wrist coords with visibility >= threshold"
+  # rolling_movement null handling (BOTH — not just skip):
+  #   A) Exclude null frames from displacement sum (null != zero motion).
+  #   B) If valid_fraction in window < 0.5 -> label window UNKNOWN
+  #      (not ACTIVE/IDLE). Prevents occlusion from looking like idle.
+  movement_min_valid_fraction: 0.5
+  movement_low_coverage_label: "UNKNOWN"

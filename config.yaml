@@ -1,0 +1,90 @@
+# Worker Monitoring PoC — shared paths and tunables
+# Edit thresholds here; scripts read this file.
+
+video:
+  path: "20260602_214750.mp4"
+  expected_workers: 4
+  fps: 30          # approximate; overwritten from file when scripts run
+
+model:
+  # yolo11s: best CPU/quality tradeoff for 4 seated workers at 720p
+  weights: "yolo11s.pt"
+  # Sanity-check only: compare against nano on hard frames (never full video)
+  sanity_compare_weights: "yolo11n.pt"
+  imgsz: 640
+  device: "cpu"
+  classes: [0]     # COCO person
+
+detection:
+  conf: 0.25       # confirmed after Step 3 sanity check
+  iou: 0.45
+
+tracking:
+  tracker: "bytetrack.yaml"
+  # Defaults for now — tune only after Step 5 diagnostics
+  track_buffer: 30
+  match_thresh: 0.8
+
+processing:
+  checkpoint_every: 100   # frames (~3.3 s at 30 fps); smaller = safer resume
+  batch_size: 1           # CPU: always 1
+
+# CSV schema written by Step 4 (needed for Step 5 position-based diagnosis):
+#   frame_idx, track_id, x1, y1, x2, y2, conf, cx, cy, w, h
+# cx/cy = box center; w/h = size — enables spatial clustering + deferred area analysis
+# without re-deriving geometry later.
+
+# DEFERRED (do NOT implement until Step 5 shows Type-B phantoms are a problem):
+#   - min-box-area filter
+#   - overlap / NMS-with-existing-track filter
+# Step 5 must first prove Type B caused persistent phantom IDs.
+
+sanity:
+  easy_frame: 0
+  sample_stride: 500
+  conf_sweep: [0.15, 0.25, 0.35]
+
+paths:
+  outputs: "outputs"
+  detections: "outputs/detections"
+  tracks: "outputs/tracks"
+  checkpoints: "outputs/checkpoints"
+  diagnostics: "outputs/diagnostics"
+  sanity: "outputs/sanity"
+  pose: "outputs/pose"
+
+# Pose extraction (MediaPipe) — contract before full run:
+#   - Every wrist/elbow reading includes a visibility score.
+#   - If visibility < visibility_threshold: landmark x/y stored as empty/null
+#     (NOT a low-confidence coordinate that could enter rolling_movement).
+#   - Activity/movement scripts must ignore null coords.
+# Identity merge across reappearance (e.g. track 3 vs 16) is NOT done here;
+# deferred to company-server ElasticFaceArcAug + FAR-calibrated attendance.
+pose:
+  tracks_csv: "outputs/tracks/fasttracker_full/tracks.csv"
+  station_map: "station_map.yaml"
+  real_track_ids: [1, 2, 3, 4, 16]   # from station_map; exclude noise IDs
+  frame_stride: 2                    # confirmed: every 2nd frame (~15 Hz)
+  model_complexity: 1
+  visibility_threshold: 0.5
+  crop_pad_px: 20
+  checkpoint_every: 500              # sampled frames (not raw video frames)
+  # CSV columns:
+  # frame_idx, timestamp_s, track_id, station_id,
+  # l_wrist_x, l_wrist_y, l_wrist_vis,
+  # r_wrist_x, r_wrist_y, r_wrist_vis,
+  # l_elbow_x, l_elbow_y, l_elbow_vis,
+  # r_elbow_x, r_elbow_y, r_elbow_vis
+  # When vis < visibility_threshold: *_x and *_y are blank (null), *_vis still written.
+
+  # rolling_movement / activity null policy (LOCKED):
+  # 1) Null wrist coords are NEVER treated as (0,0) or as zero displacement.
+  # 2) Within a rolling window, only consecutive VALID observations (non-null,
+  #    vis >= threshold) contribute to movement distance.
+  # 3) If valid_fraction in the window < min_valid_fraction, the window is
+  #    labeled UNKNOWN (not ACTIVE, not IDLE) — low visibility must not look
+  #    like "sitting still".
+  movement:
+    min_valid_fraction: 0.5
+    low_coverage_label: "UNKNOWN"
+    null_means: "exclude_from_displacement_and_possibly_UNKNOWN_window"

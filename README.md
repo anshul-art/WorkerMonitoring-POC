@@ -2,6 +2,8 @@
 
 Local PoC for fixed CCTV worker monitoring: **detect → track → pose → movement/activity**.
 
+AI / session context for this repo: see [`CLAUDE.md`](CLAUDE.md).
+
 ## Pipeline (this repo)
 
 1. YOLOv11 person detection  
